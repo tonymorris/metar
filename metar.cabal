@@ -1,37 +1,45 @@
 name:               metar
 version:            0.0.1
 license:            BSD3
-license-file:       LICENSE
-author:             Tony Morris <ʇǝu˙sıɹɹoɯʇ@ןןǝʞsɐɥ>
-maintainer:         Tony Morris
-copyright:          Tony Morris (c) 2016
-synopsis:           METAR
-category:           Aviation, Weather
-description:        METAR
+license-file:       LICENCE
+author:             Tony Morris <ʇǝu˙sıɹɹoɯʇ@sıɹɹoɯʇ>
+maintainer:         Tony Morris <ʇǝu˙sıɹɹoɯʇ@sıɹɹoɯʇ>
+copyright:          Copyright (c) 2018, Tony Morris
+synopsis:           Australian METAR
+category:           Data, Aviation
+description:       
+  Get Australian METAR
 homepage:           https://github.com/tonymorris/metar
 bug-reports:        https://github.com/tonymorris/metar/issues
 cabal-version:      >= 1.10
-build-type:         Custom
-extra-source-files: changelog
+build-type:         Simple
+extra-source-files: changelog.md
 
 source-repository   head
   type:             git
   location:         git@github.com:tonymorris/metar.git
-
-flag                small_base
-  description:      Choose the new, split-up base package.
 
 library
   default-language:
                     Haskell2010
 
   build-depends:
-                    base >= 4.8 && < 5                    
-                   
+                    base >= 4.8 && < 5
+                    , HTTP >= 4000 && < 5000
+                    , lens >= 4 && < 5
+                    , network-uri >= 2.6 && < 3
+                    , semigroups >= 0.9 && < 0.19
+                    , semigroupoids >= 5.2 && < 6
+                    , tagsoup >= 0.13 && < 0.15
+                    , tagsoup-selection >= 0.1 && < 0.2
+                    , transformers >= 0.5 && < 0.6
+                    , deriving-compat
+                    
   ghc-options:
                     -Wall
 
   default-extensions:
+  
                     NoImplicitPrelude
 
   hs-source-dirs:
@@ -39,28 +47,52 @@ library
 
   exposed-modules:
                     Data.Aviation.Metar
-                    
-test-suite doctests
-  type:
-                    exitcode-stdio-1.0
+                    , Data.Aviation.Metar.BOMTAFResult
+                    , Data.Aviation.Metar.TAFResult
+                    , Data.Aviation.Metar.TAFResultT
 
+executable          metar
   main-is:
-                    doctests.hs
+                    Main.hs
 
   default-language:
                     Haskell2010
 
   build-depends:
-                    base < 5 && >= 3
-                    , doctest >= 0.9.7
-                    , filepath >= 1.3
-                    , directory >= 1.1
-                    , QuickCheck >= 2.0
-                    , template-haskell >= 2.8
+                    base >= 4.8 && < 5
+                    , metar
 
   ghc-options:
                     -Wall
-                    -threaded
+
+  default-extensions:
+                    NoImplicitPrelude
 
   hs-source-dirs:
+                    src-exe
+
+test-suite          tests
+
+  build-depends:      QuickCheck >=2.9.2 && <2.13
+                    , base >=4.8 && < 5
+                    , checkers >=0.4.6 && <0.5
+                    , metar
+                    , lens >=4 && <4.18
+                    , tasty >=0.11 && <1.2
+                    , tasty-hunit >=0.9 && <0.11
+                    , tasty-quickcheck >=0.8.4 && <0.11
+
+  type:             
+                    exitcode-stdio-1.0
+
+  main-is:          
+                    Tests.hs
+
+  hs-source-dirs:   
                     test
+
+  default-language: 
+                    Haskell2010
+
+  ghc-options:       
+                    -Wall

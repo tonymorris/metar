@@ -1,3 +1,4 @@
-# `metar`
+# metar
 
-Meteorological Aviation Report.
+Get Australian METAR
+
