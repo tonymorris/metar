@@ -10,6 +10,7 @@ import Prelude
 import Text.HTML.TagSoup.Tree
 import Text.HTML.TagSoup
 import Data.Char
+import Data.Functor.Classes
 
 data BOMTAFResponse =
   BOMTAFResponse
@@ -23,6 +24,34 @@ data TAFResult a =
   | ParseErrorResult
   | TAFResult a
   deriving (Eq, Show)
+
+instance Eq1 TAFResult where
+  liftEq _ (ConnErrorResult e1) (ConnErrorResult e2) =
+    e1 == e2
+  liftEq _ (ConnErrorResult _) ParseErrorResult =
+    False
+  liftEq _ (ConnErrorResult _) (TAFResult _) =
+    False
+  liftEq _ ParseErrorResult ParseErrorResult =
+    True
+  liftEq _ ParseErrorResult (ConnErrorResult _) =
+    False
+  liftEq _ ParseErrorResult (TAFResult _) =
+    False
+  liftEq f (TAFResult a) (TAFResult b) =
+    f a b
+  liftEq _ (TAFResult _) (ConnErrorResult _) =
+    False
+  liftEq _ (TAFResult _) ParseErrorResult =
+    False
+
+instance Show1 TAFResult where
+  liftShowsPrec f _ n (TAFResult a) =
+    showParen (n > 10) (showString "TAFResult " . f n a)
+  liftShowsPrec _ _ n (ConnErrorResult e) =
+    showParen (n > 10) (showString "ConnErrorResult " . showsPrec n e)
+  liftShowsPrec _ _ n ParseErrorResult =
+    showParen (n > 10) (showsPrec n "ParseErrorResult")
 
 instance Functor TAFResult where
   fmap _ (ConnErrorResult e) =
@@ -59,7 +88,22 @@ instance Monad TAFResult where
 newtype TAFResultT f a =
   TAFResultT
     (f (TAFResult a))
--- todo Eq1, Ord1, Show1
+
+instance (Eq a, Eq1 f) => Eq (TAFResultT f a) where
+  TAFResultT x == TAFResultT y =
+    liftEq (==) x y
+
+instance (Show a, Show1 f) => Show (TAFResultT f a) where
+  showsPrec n (TAFResultT x) =
+    showParen (n > 10) (showString "TAFResultT " . showsPrec1 n x)
+
+instance Eq1 f => Eq1 (TAFResultT f) where
+  liftEq f (TAFResultT x) (TAFResultT y) =
+    liftEq (liftEq f) x y
+
+instance Show1 f => Show1 (TAFResultT f) where
+  liftShowsPrec f g n (TAFResultT x) =
+    undefined
 
 withResult ::
   (r -> Maybe a) ->
