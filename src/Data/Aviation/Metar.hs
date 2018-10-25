@@ -1,50 +1,142 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Data.Aviation.Metar where
 
+-- https://gist.github.com/tonymorris/d069c12946c2a41b2b33cf6dc436c075
+
 import Network.HTTP
+import Network.Stream
 import Network.URI
-
+import Data.Semigroup
 import Prelude
-import Text.Parser.Char
-import Text.Parser.Combinators(eof)
-import Data.Aviation.WX
-import Data.Attoparsec.Text(Parser, parse, parseOnly, Result)
-import Data.Text(Text)
+import Text.HTML.TagSoup.Tree
+import Text.HTML.TagSoup
 
--- curl http://www.bom.gov.au/aviation/php/process.php -d page=metar-speci -d state=Queensland
-r :: Request String
-r =
-  Request
-    (URI "http:" (Just (URIAuth "" "www.bom.gov.au" "")) "/aviation/php/process.php" "" "")
-    POST
-    [ 
-      mkHeader HdrContentLength "33"
-    , mkHeader HdrContentType "application/x-www-form-urlencoded"
+request ::
+  String
+  -> Request String
+request yxxx =
+  let reqBody =
+        "keyword=" <> yxxx <> "&type=search&page=TAF"
+      in  setHeaders
+        (
+          setRequestBody
+            (
+              mkRequest
+                POST
+                (URI "http" (Just (URIAuth "" "www.bom.gov.au" "")) "/aviation/php/process.php" "" "")
+            )
+            ("application/x-www-form-urlencoded", reqBody)
+        )
+        [
+          Header HdrHost                        "www.bom.gov.au"
+        , Header HdrUserAgent                   "tonymorris/metar"
+        , Header HdrAccept                      "*/*"
+        , Header HdrAcceptLanguage              "en-US,en;q=0.5"
+        , Header HdrAcceptEncoding              "text/html"
+        , Header HdrReferer                     "http://www.bom.gov.au/aviation/forecasts/taf/"
+        , Header HdrConnection                  "keep-alive"
+        , Header HdrContentType                 "application/x-www-form-urlencoded"
+        , Header HdrContentLength               (show (length reqBody))
+        , Header HdrCookie                      "check=ok; bom_meteye_windspeed_units_knots=yes"
+        , Header HdrPragma                      "no-cache"
+        , Header HdrCacheControl                "no-cache"
+        , Header (HdrCustom "DNT")              "1"
+        , Header (HdrCustom "X-Requested-With") "XMLHttpRequest"
+        ]
+
+data TAFResponse =
+  TAFResponse
+    String -- title
+    [String] -- TAF
+    [String] -- METAR
+  deriving (Eq, Ord, Show)
+
+{-
+
+[
+  TagBranch "h3" []
+    [TagLeaf (TagText "* BRISBANE YBBN")]
+, TagBranch "p" [("class","product")]
+    [
+      TagLeaf (TagText "TAF YBBN 250507Z 2506/2612")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "05010KT 9999 FEW040")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "FM250800 05008KT 9999 -SHRA SCT040")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "FM251200 33007KT 9999 SCT020")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "FM252300 01012KT CAVOK")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "FM260700 13014KT 9999 SCT020")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "PROB30 TEMPO 2508/2512 VRB20G35KT 2000 TSRA BKN012 SCT040CB")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "RMK")
+    , TagBranch "br" [] []
+    , TagLeaf (TagText "T 24 22 21 20 Q 1016 1017 1016 1015")
     ]
-    "page=metar-speci&state=Queensland"
+  , TagBranch "p" [("class","product")]
+      [
+        TagLeaf (TagText "TTF METAR YBBN 250600Z 04011KT 9999 FEW035 25/20 Q1015")
+      , TagBranch "br" [] []
+      , TagLeaf (TagText "RMK RF00.0/000.0 HAZE")
+      , TagBranch "br" [] []
+      , TagLeaf (TagText "NOSIG")
+      ]
+  , TagBranch "p" []
+      [
+        TagBranch "strong" []
+          [
+            TagLeaf (TagText "* Note:")
+          ]
+          , TagLeaf (TagText " The latest TTF automatically supersedes the TAF for the 3 hr validity of the TTF, unless otherwise specified in the TTF.")
+      ]
+  ]
 
-s :: IO String
-s =
-  simpleHTTP r >>= getResponseBody
+-}
 
-testout :: Text
-testout =
-  "15/09/2016 UTC</h3><p class=\"product\">METAR YBTL 150800Z AUTO 06009KT 9999 // NCD 25/21 Q1014<br />RMK RF00.0/000.0</p></div><p>t TTF automatically supersedes the TAF for the 3 hr validity of the TTF, unless otherwise specified in the TTF.</p></div><div id=\"Area-bottom'><h3>BURKETOWN YBKT  15/09/2016 UTC</h3><p class=\"product\">METAR YBKT 150800Z AUTO 01012KT //// // ////// 29/22 Q1011<br />RMK margin-small pad-bottom'><h3>* CAIRNS YBCS  15/09/2016 UTC</h3><p class=\"product\">METAR YBCS 150800Z 04006KT 9999 FEW028 SCT175 26/22 iv><div class='margin-small pad-bottom'><h3>CAPE FLATTERY YCFL  15/09/2016 UTC</h3><p class=\"product\">SPECI YCFL 150800Z AUTO 14012KT K RF00.0/000.0</p></div><div class='margin-small pad-bottom'><h3>COEN YCOE  15/09/2016 UTC</h3><p class=\"product\">METAR YCOE 150800Z A1012<br />RMK RF00.0/000.0</p></div><div class='margin-small pad-bottom'><h3>COOKTOWN YCKN  15/09/2016 UTC</h3>"
+mkTAFResponse ::
+  [TagTree String]
+  -> Maybe TAFResponse
+mkTAFResponse (TagBranch "h3" [] [TagLeaf (TagText title)] : TagBranch "p" [("class","product")] tafs : TagBranch "p" [("class","product")] metars:_) =
+  let tagTexts q =
+        q >>= \r ->
+          case r of
+            TagLeaf (TagText v) ->
+              [v]
+            _ ->
+              []
+  in  Just (TAFResponse title (tagTexts tafs) (tagTexts metars))
+mkTAFResponse _ =
+  Nothing
 
-testout2 :: Text
-testout2 = "METAR YBBN 150800Z 24005KT 9999 NOSIG="-- METAR YBBN 150800Z 24005KT 9999 -RA FEW015 SCT034 BKN060 19/19 Q1015"
+data TAFResult =
+  ConnErrorResult ConnError
+  | ParseErrorResult
+  | TAFResult TAFResponse
+  deriving (Eq, Show)
 
-pars ::
-  Parser Weather
-pars =
-  do  -- _ <- string "<p class=\"product\">"
-      w <- weatherParser
-      
-      return w
+respTAF ::
+  Response String
+  -> Maybe TAFResponse
+respTAF =
+  mkTAFResponse . parseTree . rspBody
 
-testpars ::
-  Text
-  -> Either String Weather
-testpars =
-  parseOnly pars
+getTAF ::
+  String
+  -> IO TAFResult
+getTAF =
+  let withResult ::
+        Either ConnError (Response String)
+        -> TAFResult
+      withResult (Left e) =
+        ConnErrorResult e
+      withResult (Right s) =
+        case respTAF s of
+          Nothing ->
+            ParseErrorResult
+          Just z ->
+            TAFResult z
+  in  fmap withResult . simpleHTTP . request
