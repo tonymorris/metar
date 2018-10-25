@@ -4,10 +4,12 @@ module Main(
   main
 ) where
 
-import Data.Aviation.Metar
-import System.IO(IO, putStrLn)
+import Data.Aviation.Metar(runMETAR)
+import System.Environment(getArgs)
+import System.IO(IO)
 
 main ::
   IO ()
 main =
-  putStrLn "hi"
+  do  a <- getArgs
+      runMETAR a

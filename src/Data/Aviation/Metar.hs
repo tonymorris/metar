@@ -1,182 +1,35 @@
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 
-module Data.Aviation.Metar where
+module Data.Aviation.Metar(
+  getBOMTAF
+, getNOAAMETAR
+, getAllMETAR
+, getAllTAF
+, runMETAR
+) where
 
-import Control.Applicative
-import Control.Monad
-import Network.HTTP
-import Network.Stream
-import Network.URI
-import Data.Semigroup
-import Prelude
-import Text.HTML.TagSoup.Tree
-import Text.HTML.TagSoup
-import Data.Char
-import Data.Functor.Apply
-import Data.Functor.Alt
-import Data.Functor.Bind
-import Data.Functor.Extend
-import Control.Monad.Trans.Class
-import Control.Monad.IO.Class
-
--- import Data.Functor.Classes
-
-data TAFResult a =
-  ConnErrorResult ConnError
-  | ParseErrorResult
-  | TAFResult a
-  deriving (Eq, Show)
-
-instance Functor TAFResult where
-  fmap _ (ConnErrorResult e) =
-    ConnErrorResult e
-  fmap _ ParseErrorResult =
-    ParseErrorResult
-  fmap f (TAFResult a) =
-    TAFResult (f a)
-
-instance Apply TAFResult where
-  ConnErrorResult e <.> _ =
-    ConnErrorResult e
-  ParseErrorResult <.> _ =
-    ParseErrorResult
-  TAFResult f <.> TAFResult a =
-    TAFResult (f a)
-  TAFResult _ <.> ConnErrorResult e =
-    ConnErrorResult e
-  TAFResult _ <.> ParseErrorResult =
-    ParseErrorResult
-
-instance Applicative TAFResult where
-  pure =
-    TAFResult
-  (<*>) =
-    (<.>)
-
-instance Bind TAFResult where
-  ConnErrorResult e >>- _ =
-    ConnErrorResult e
-  ParseErrorResult >>- _ =
-    ParseErrorResult
-  TAFResult a >>- f =
-    f a
-
-instance Monad TAFResult where
-  return =
-    pure
-  (>>=) =
-    (>>-)
-
-instance Foldable TAFResult where
-  foldr f z (TAFResult a) =
-    f a z
-  foldr _ z (ConnErrorResult _ ) =
-    z
-  foldr _ z ParseErrorResult =
-    z
-
-instance Traversable TAFResult where
-  traverse f (TAFResult a) =
-    TAFResult <$> f a
-  traverse _ (ConnErrorResult e) =
-    pure (ConnErrorResult e)
-  traverse _ ParseErrorResult =
-    pure ParseErrorResult
-
-instance Alt TAFResult where
-  TAFResult a <!> _ =
-    TAFResult a
-  ConnErrorResult _ <!> x =
-    x
-  ParseErrorResult <!> x =
-    x
-
-instance Extend TAFResult where
-  duplicated (TAFResult a) =
-    TAFResult (TAFResult a)
-  duplicated (ConnErrorResult e) =
-    ConnErrorResult e
-  duplicated ParseErrorResult =
-    ParseErrorResult
-
-instance Semigroup (TAFResult a) where
-  (<>) =
-    (<!>)
-
-newtype TAFResultT f a =
-  TAFResultT
-    (f (TAFResult a))
-
-instance Functor f => Functor (TAFResultT f) where
-  fmap f (TAFResultT x) =
-    TAFResultT (fmap (fmap f) x)
-
-instance Monad f => Apply (TAFResultT f) where
-  (<.>) =
-    ap
-
-instance Monad f => Applicative (TAFResultT f) where
-  pure =
-    TAFResultT . pure . pure
-  (<*>) =
-    ap
-
-instance Monad f => Bind (TAFResultT f) where
-  (>>-) =
-    (>>=)
-
-instance Monad f => Monad (TAFResultT f) where
-  return =
-    pure
-  TAFResultT x >>= f =
-    TAFResultT
-      (
-        x >>= \x' ->
-        case x' of
-          TAFResult x'' ->
-            let TAFResultT r = f x''
-            in  r
-          ConnErrorResult e ->
-            pure (ConnErrorResult e)
-          ParseErrorResult ->
-            pure ParseErrorResult
-      )
-
-instance Foldable f => Foldable (TAFResultT f) where
-  foldr f z (TAFResultT x) =
-    foldr (\a b -> foldr f b a) z x
-
-instance Traversable f => Traversable (TAFResultT f) where
-  traverse f (TAFResultT x) =
-    TAFResultT <$> traverse (traverse f) x
-
-instance Monad f => Alt (TAFResultT f) where
-  TAFResultT x <!> TAFResultT y =
-    TAFResultT
-      (
-        x >>= \x' ->
-        case x' of
-          TAFResult x'' ->
-            pure (TAFResult x'')
-          ConnErrorResult _ ->
-            y
-          ParseErrorResult ->
-            y
-      )
-
-instance MonadIO f => MonadIO (TAFResultT f) where
-  liftIO =
-    TAFResultT . liftIO . fmap pure
-
-instance MonadTrans TAFResultT where
-  lift =
-    TAFResultT . fmap pure
-
-instance Monad f => Semigroup (TAFResultT f a) where
-  (<>) =
-    (<!>)
+import Control.Applicative(pure)
+import Control.Category((.))
+import Control.Lens(view, _Wrapped)
+import Control.Monad(Monad((>>=)))
+import Data.Aviation.Metar.BOMTAFResult(BOMTAFResponse(BOMTAFResponse), bomMETAR, bomTAF)
+import Data.Aviation.Metar.TAFResult(TAFResult(ConnErrorResult, ParseErrorResult, TAFResultValue))
+import Data.Aviation.Metar.TAFResultT(TAFResultT(TAFResultT))
+import Data.Char(toUpper)
+import Data.Either(Either(Left, Right))
+import Data.Foldable(length)
+import Data.Functor(fmap)
+import Data.List(intercalate)
+import Data.Maybe(Maybe(Nothing, Just))
+import Data.String(String, lines)
+import Data.Semigroup((<>))
+import Network.HTTP(Request, Response, setHeaders, setRequestBody, mkRequest, RequestMethod(POST, GET), Header(Header), HeaderName(..), rspBody, simpleHTTP)
+import Network.Stream(ConnError)
+import Network.URI(URI(URI), URIAuth(URIAuth))
+import Prelude(show)
+import System.IO(IO, hPutStrLn, putStrLn, stderr)
+import Text.HTML.TagSoup(Tag(TagText))
+import Text.HTML.TagSoup.Tree(TagTree(TagBranch, TagLeaf), parseTree)
 
 withResult ::
   (r -> Maybe a) ->
@@ -189,14 +42,7 @@ withResult k (Right s) =
     Nothing ->
       ParseErrorResult
     Just z ->
-      TAFResult z
-
-data BOMTAFResponse =
-  BOMTAFResponse
-    String -- title
-    [String] -- TAF
-    [String] -- METAR
-  deriving (Eq, Ord, Show)
+      TAFResultValue z
 
 getBOMTAF ::
   String
@@ -256,10 +102,10 @@ getBOMTAF =
   in  TAFResultT . fmap (withResult respTAF) . simpleHTTP . request
 
 -- http://tgftp.nws.noaa.gov/data/observations/metar/stations/xxxx.TXT
-getNOAATAF ::
+getNOAAMETAR ::
   String
   -> TAFResultT IO String
-getNOAATAF =
+getNOAAMETAR =
   let request ::
         String
         -> Request String
@@ -281,11 +127,44 @@ getNOAATAF =
           , Header HdrCacheControl                "no-cache"
           , Header (HdrCustom "DNT")              "1"
           ]
-      respTAF ::
+      respMETAR ::
         Response String
         -> Maybe String
-      respTAF r =
+      respMETAR r =
         case lines (rspBody r) of
           [_, r'] -> Just r'
           _ -> Nothing
-  in TAFResultT . fmap (withResult respTAF) . simpleHTTP . request
+  in TAFResultT . fmap (withResult respMETAR) . simpleHTTP . request
+
+getAllMETAR ::
+  String
+  -> TAFResultT IO [String]
+getAllMETAR x = 
+  fmap (view bomMETAR) (getBOMTAF x) <>
+  fmap pure (getNOAAMETAR x)
+
+getAllTAF ::
+  String
+  -> TAFResultT IO [String]
+getAllTAF x = 
+  fmap (view bomTAF) (getBOMTAF x)
+
+runMETAR ::
+  [String]
+  -> IO ()
+runMETAR x =
+  let stderr' =
+        hPutStrLn stderr
+  in  case x of
+        [] ->
+          stderr' "enter an argument (ICAO code)"
+        (r:_) ->
+          let s = view _Wrapped (fmap (intercalate "\n") (getAllMETAR r))
+          in  s >>= \s' ->
+              case s' of
+                TAFResultValue a ->
+                  putStrLn a
+                ParseErrorResult ->
+                  stderr' ("No METAR for " <> r)
+                ConnErrorResult e ->
+                  stderr' ("Network connection error " <> show e)

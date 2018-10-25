@@ -47,6 +47,7 @@ library
                     , time >= 1.6 && < 1.10
                     , utf8-string >= 1.0.1.1 && < 1.1
                     , unordered-containers >= 0.2.9.0 && < 0.3
+                    , deriving-compat
                     
   ghc-options:
                     -Wall
@@ -60,6 +61,9 @@ library
 
   exposed-modules:
                     Data.Aviation.Metar
+                    , Data.Aviation.Metar.BOMTAFResult
+                    , Data.Aviation.Metar.TAFResult
+                    , Data.Aviation.Metar.TAFResultT
 
 executable          metar
   main-is:
