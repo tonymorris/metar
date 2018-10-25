@@ -1,7 +1,11 @@
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Data.Aviation.Metar where
 
+import Control.Applicative
+import Control.Monad
 import Network.HTTP
 import Network.Stream
 import Network.URI
@@ -10,48 +14,20 @@ import Prelude
 import Text.HTML.TagSoup.Tree
 import Text.HTML.TagSoup
 import Data.Char
-import Data.Functor.Classes
+import Data.Functor.Apply
+import Data.Functor.Alt
+import Data.Functor.Bind
+import Data.Functor.Extend
+import Control.Monad.Trans.Class
+import Control.Monad.IO.Class
 
-data BOMTAFResponse =
-  BOMTAFResponse
-    String -- title
-    [String] -- TAF
-    [String] -- METAR
-  deriving (Eq, Ord, Show)
+-- import Data.Functor.Classes
 
 data TAFResult a =
   ConnErrorResult ConnError
   | ParseErrorResult
   | TAFResult a
   deriving (Eq, Show)
-
-instance Eq1 TAFResult where
-  liftEq _ (ConnErrorResult e1) (ConnErrorResult e2) =
-    e1 == e2
-  liftEq _ (ConnErrorResult _) ParseErrorResult =
-    False
-  liftEq _ (ConnErrorResult _) (TAFResult _) =
-    False
-  liftEq _ ParseErrorResult ParseErrorResult =
-    True
-  liftEq _ ParseErrorResult (ConnErrorResult _) =
-    False
-  liftEq _ ParseErrorResult (TAFResult _) =
-    False
-  liftEq f (TAFResult a) (TAFResult b) =
-    f a b
-  liftEq _ (TAFResult _) (ConnErrorResult _) =
-    False
-  liftEq _ (TAFResult _) ParseErrorResult =
-    False
-
-instance Show1 TAFResult where
-  liftShowsPrec f _ n (TAFResult a) =
-    showParen (n > 10) (showString "TAFResult " . f n a)
-  liftShowsPrec _ _ n (ConnErrorResult e) =
-    showParen (n > 10) (showString "ConnErrorResult " . showsPrec n e)
-  liftShowsPrec _ _ n ParseErrorResult =
-    showParen (n > 10) (showsPrec n "ParseErrorResult")
 
 instance Functor TAFResult where
   fmap _ (ConnErrorResult e) =
@@ -61,49 +37,146 @@ instance Functor TAFResult where
   fmap f (TAFResult a) =
     TAFResult (f a)
 
+instance Apply TAFResult where
+  ConnErrorResult e <.> _ =
+    ConnErrorResult e
+  ParseErrorResult <.> _ =
+    ParseErrorResult
+  TAFResult f <.> TAFResult a =
+    TAFResult (f a)
+  TAFResult _ <.> ConnErrorResult e =
+    ConnErrorResult e
+  TAFResult _ <.> ParseErrorResult =
+    ParseErrorResult
+
 instance Applicative TAFResult where
   pure =
     TAFResult
-  ConnErrorResult e <*> _ =
+  (<*>) =
+    (<.>)
+
+instance Bind TAFResult where
+  ConnErrorResult e >>- _ =
     ConnErrorResult e
-  ParseErrorResult <*> _ =
+  ParseErrorResult >>- _ =
     ParseErrorResult
-  TAFResult f <*> TAFResult a =
-    TAFResult (f a)
-  TAFResult _ <*> ConnErrorResult e =
-    ConnErrorResult e
-  TAFResult _ <*> ParseErrorResult =
-    ParseErrorResult
+  TAFResult a >>- f =
+    f a
 
 instance Monad TAFResult where
   return =
     pure
-  ConnErrorResult e >>= _ =
+  (>>=) =
+    (>>-)
+
+instance Foldable TAFResult where
+  foldr f z (TAFResult a) =
+    f a z
+  foldr _ z (ConnErrorResult _ ) =
+    z
+  foldr _ z ParseErrorResult =
+    z
+
+instance Traversable TAFResult where
+  traverse f (TAFResult a) =
+    TAFResult <$> f a
+  traverse _ (ConnErrorResult e) =
+    pure (ConnErrorResult e)
+  traverse _ ParseErrorResult =
+    pure ParseErrorResult
+
+instance Alt TAFResult where
+  TAFResult a <!> _ =
+    TAFResult a
+  ConnErrorResult _ <!> x =
+    x
+  ParseErrorResult <!> x =
+    x
+
+instance Extend TAFResult where
+  duplicated (TAFResult a) =
+    TAFResult (TAFResult a)
+  duplicated (ConnErrorResult e) =
     ConnErrorResult e
-  ParseErrorResult >>= _ =
+  duplicated ParseErrorResult =
     ParseErrorResult
-  TAFResult a >>= f =
-    f a
+
+instance Semigroup (TAFResult a) where
+  (<>) =
+    (<!>)
 
 newtype TAFResultT f a =
   TAFResultT
     (f (TAFResult a))
 
-instance (Eq a, Eq1 f) => Eq (TAFResultT f a) where
-  TAFResultT x == TAFResultT y =
-    liftEq (==) x y
+instance Functor f => Functor (TAFResultT f) where
+  fmap f (TAFResultT x) =
+    TAFResultT (fmap (fmap f) x)
 
-instance (Show a, Show1 f) => Show (TAFResultT f a) where
-  showsPrec n (TAFResultT x) =
-    showParen (n > 10) (showString "TAFResultT " . showsPrec1 n x)
+instance Monad f => Apply (TAFResultT f) where
+  (<.>) =
+    ap
 
-instance Eq1 f => Eq1 (TAFResultT f) where
-  liftEq f (TAFResultT x) (TAFResultT y) =
-    liftEq (liftEq f) x y
+instance Monad f => Applicative (TAFResultT f) where
+  pure =
+    TAFResultT . pure . pure
+  (<*>) =
+    ap
 
-instance Show1 f => Show1 (TAFResultT f) where
-  liftShowsPrec f g n (TAFResultT x) =
-    undefined
+instance Monad f => Bind (TAFResultT f) where
+  (>>-) =
+    (>>=)
+
+instance Monad f => Monad (TAFResultT f) where
+  return =
+    pure
+  TAFResultT x >>= f =
+    TAFResultT
+      (
+        x >>= \x' ->
+        case x' of
+          TAFResult x'' ->
+            let TAFResultT r = f x''
+            in  r
+          ConnErrorResult e ->
+            pure (ConnErrorResult e)
+          ParseErrorResult ->
+            pure ParseErrorResult
+      )
+
+instance Foldable f => Foldable (TAFResultT f) where
+  foldr f z (TAFResultT x) =
+    foldr (\a b -> foldr f b a) z x
+
+instance Traversable f => Traversable (TAFResultT f) where
+  traverse f (TAFResultT x) =
+    TAFResultT <$> traverse (traverse f) x
+
+instance Monad f => Alt (TAFResultT f) where
+  TAFResultT x <!> TAFResultT y =
+    TAFResultT
+      (
+        x >>= \x' ->
+        case x' of
+          TAFResult x'' ->
+            pure (TAFResult x'')
+          ConnErrorResult _ ->
+            y
+          ParseErrorResult ->
+            y
+      )
+
+instance MonadIO f => MonadIO (TAFResultT f) where
+  liftIO =
+    TAFResultT . liftIO . fmap pure
+
+instance MonadTrans TAFResultT where
+  lift =
+    TAFResultT . fmap pure
+
+instance Monad f => Semigroup (TAFResultT f a) where
+  (<>) =
+    (<!>)
 
 withResult ::
   (r -> Maybe a) ->
@@ -118,9 +191,16 @@ withResult k (Right s) =
     Just z ->
       TAFResult z
 
+data BOMTAFResponse =
+  BOMTAFResponse
+    String -- title
+    [String] -- TAF
+    [String] -- METAR
+  deriving (Eq, Ord, Show)
+
 getBOMTAF ::
   String
-  -> IO (TAFResult BOMTAFResponse)
+  -> TAFResultT IO BOMTAFResponse
 getBOMTAF =
   let mkTAFResponse ::
         [TagTree String]
@@ -173,12 +253,12 @@ getBOMTAF =
         -> Maybe BOMTAFResponse
       respTAF =
         mkTAFResponse . parseTree . rspBody
-  in  fmap (withResult respTAF) . simpleHTTP . request
+  in  TAFResultT . fmap (withResult respTAF) . simpleHTTP . request
 
 -- http://tgftp.nws.noaa.gov/data/observations/metar/stations/xxxx.TXT
 getNOAATAF ::
   String
-  -> IO (TAFResult String)
+  -> TAFResultT IO String
 getNOAATAF =
   let request ::
         String
@@ -208,4 +288,4 @@ getNOAATAF =
         case lines (rspBody r) of
           [_, r'] -> Just r'
           _ -> Nothing
-  in fmap (withResult respTAF) . simpleHTTP . request
+  in TAFResultT . fmap (withResult respTAF) . simpleHTTP . request
