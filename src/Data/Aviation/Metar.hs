@@ -2,8 +2,6 @@
 
 module Data.Aviation.Metar where
 
--- https://gist.github.com/tonymorris/d069c12946c2a41b2b33cf6dc436c075
-
 import Network.HTTP
 import Network.Stream
 import Network.URI
@@ -11,6 +9,7 @@ import Data.Semigroup
 import Prelude
 import Text.HTML.TagSoup.Tree
 import Text.HTML.TagSoup
+import Data.Char
 
 data BOMTAFResponse =
   BOMTAFResponse
@@ -24,6 +23,56 @@ data TAFResult a =
   | ParseErrorResult
   | TAFResult a
   deriving (Eq, Show)
+
+instance Functor TAFResult where
+  fmap _ (ConnErrorResult e) =
+    ConnErrorResult e
+  fmap _ ParseErrorResult =
+    ParseErrorResult
+  fmap f (TAFResult a) =
+    TAFResult (f a)
+
+instance Applicative TAFResult where
+  pure =
+    TAFResult
+  ConnErrorResult e <*> _ =
+    ConnErrorResult e
+  ParseErrorResult <*> _ =
+    ParseErrorResult
+  TAFResult f <*> TAFResult a =
+    TAFResult (f a)
+  TAFResult _ <*> ConnErrorResult e =
+    ConnErrorResult e
+  TAFResult _ <*> ParseErrorResult =
+    ParseErrorResult
+
+instance Monad TAFResult where
+  return =
+    pure
+  ConnErrorResult e >>= _ =
+    ConnErrorResult e
+  ParseErrorResult >>= _ =
+    ParseErrorResult
+  TAFResult a >>= f =
+    f a
+
+newtype TAFResultT f a =
+  TAFResultT
+    (f (TAFResult a))
+-- todo Eq1, Ord1, Show1
+
+withResult ::
+  (r -> Maybe a) ->
+  Either ConnError r ->
+  TAFResult a
+withResult _ (Left e) =
+  ConnErrorResult e
+withResult k (Right s) =
+  case k s of
+    Nothing ->
+      ParseErrorResult
+    Just z ->
+      TAFResult z
 
 getBOMTAF ::
   String
@@ -49,7 +98,7 @@ getBOMTAF =
       request yxxx =
         let reqBody =
               "keyword=" <> yxxx <> "&type=search&page=TAF"
-            in  setHeaders
+        in  setHeaders
               (
                 setRequestBody
                   (
@@ -80,17 +129,39 @@ getBOMTAF =
         -> Maybe BOMTAFResponse
       respTAF =
         mkTAFResponse . parseTree . rspBody
-      withResult ::
-        Either ConnError (Response String)
-        -> TAFResult BOMTAFResponse
-      withResult (Left e) =
-        ConnErrorResult e
-      withResult (Right s) =
-        case respTAF s of
-          Nothing ->
-            ParseErrorResult
-          Just z ->
-            TAFResult z
-  in  fmap withResult . simpleHTTP . request
+  in  fmap (withResult respTAF) . simpleHTTP . request
 
--- http://tgftp.nws.noaa.gov/data/observations/metar/stations/ANAU.TXT
+-- http://tgftp.nws.noaa.gov/data/observations/metar/stations/xxxx.TXT
+getNOAATAF ::
+  String
+  -> IO (TAFResult String)
+getNOAATAF =
+  let request ::
+        String
+        -> Request String
+      request xxxx =
+        setHeaders
+          (
+            mkRequest
+              GET
+              (URI "http" (Just (URIAuth "" "tgftp.nws.noaa.gov" "")) ("data/observations/metar/stations/" <> fmap toUpper xxxx <> ".TXT") "" "")               
+          )
+          [
+            Header HdrHost                        "tgftp.nws.noaa.gov"
+          , Header HdrUserAgent                   "tonymorris/metar"
+          , Header HdrAccept                      "*/*"
+          , Header HdrAcceptLanguage              "en-US,en;q=0.5"
+          , Header HdrAcceptEncoding              "text/html"
+          , Header HdrConnection                  "keep-alive"
+          , Header HdrPragma                      "no-cache"
+          , Header HdrCacheControl                "no-cache"
+          , Header (HdrCustom "DNT")              "1"
+          ]
+      respTAF ::
+        Response String
+        -> Maybe String
+      respTAF r =
+        case lines (rspBody r) of
+          [_, r'] -> Just r'
+          _ -> Nothing
+  in fmap (withResult respTAF) . simpleHTTP . request
