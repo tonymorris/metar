@@ -8,7 +8,9 @@ copyright:          Copyright (c) 2018, Tony Morris
 synopsis:           Australian METAR
 category:           Data, Aviation
 description:       
-  Get Australian METAR
+  Obtain Australian METAR from Bureau of Meteorology (BOM).
+  .
+  If that fails, get the METAR from NOAA.
 homepage:           https://github.com/tonymorris/metar
 bug-reports:        https://github.com/tonymorris/metar/issues
 cabal-version:      >= 1.10
