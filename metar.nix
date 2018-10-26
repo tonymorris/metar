@@ -1,21 +1,17 @@
-{ mkDerivation, aeson, aeson-pretty, base, bytestring, checkers
-, Crypto, directory, exceptions, filepath, HTTP, lens, network-uri
-, optparse-applicative, parsec, parsers, process, QuickCheck
-, semigroupoids, semigroups, stdenv, tagsoup, tagsoup-selection
-, tasty, tasty-hunit, tasty-quickcheck, time, transformers
-, unordered-containers, utf8-string
+{ mkDerivation, base, checkers, deriving-compat, HTTP, lens
+, network-uri, QuickCheck, semigroupoids, semigroups, stdenv
+, tagsoup, tagsoup-selection, tasty, tasty-hunit, tasty-quickcheck
+, transformers
 }:
 mkDerivation {
   pname = "metar";
-  version = "0.0.1";
+  version = "0.0.2";
   src = ./.;
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
-    aeson aeson-pretty base bytestring Crypto directory exceptions
-    filepath HTTP lens network-uri optparse-applicative parsec parsers
-    process semigroupoids semigroups tagsoup tagsoup-selection time
-    transformers unordered-containers utf8-string
+    base deriving-compat HTTP lens network-uri semigroupoids semigroups
+    tagsoup tagsoup-selection transformers
   ];
   executableHaskellDepends = [ base ];
   testHaskellDepends = [
