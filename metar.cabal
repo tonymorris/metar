@@ -11,6 +11,8 @@ description:
   Obtain Australian METAR from Bureau of Meteorology (BOM).
   .
   If that fails, get the METAR from NOAA.
+  .
+  <<https://i.imgur.com/VGTogB8.gif>>
 homepage:           https://github.com/tonymorris/metar
 bug-reports:        https://github.com/tonymorris/metar/issues
 cabal-version:      >= 1.10

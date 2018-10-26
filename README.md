@@ -5,3 +5,7 @@ http://www.bom.gov.au/aviation/forecasts/taf/
 
 If that fails, get the METAR from NOAA.
 http://tgftp.nws.noaa.gov/data/observations/metar/stations/
+
+----
+
+![metar](https://i.imgur.com/VGTogB8.gif)
