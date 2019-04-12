@@ -1,10 +1,7 @@
-0.0.4
-
-* tgftp.nws.noaa.gov moved to forcing https, so use wreq library
-
 0.0.3
 
-* bug fixes
+* tgftp.nws.noaa.gov moved to forcing https, so use wreq library
+* add metar version when given no arguments
 
 0.0.2
 

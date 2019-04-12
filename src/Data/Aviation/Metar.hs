@@ -1,5 +1,6 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
 
 module Data.Aviation.Metar(
   getBOMTAF
@@ -190,7 +191,8 @@ runMETAR x =
         hPutStrLn stderr
   in  case x of
         [] ->
-          stderr' "enter an argument (ICAO code)"
+          do  putStrLn ("metar version " <> VERSION_metar)
+              stderr' "enter an argument (ICAO code)"
         (r:_) ->
           let s = view _Wrapped (fmap (intercalate "\n") (getAllMETAR r))
           in  s >>= \s' ->
