@@ -1,4 +1,5 @@
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Data.Aviation.Metar(
   getBOMTAF
@@ -10,22 +11,29 @@ module Data.Aviation.Metar(
 
 import Control.Applicative(pure)
 import Control.Category((.))
-import Control.Lens(view, _Wrapped)
+import Control.Exception(catch)
+import Control.Lens(view, _Wrapped, (&), (.~), (^.))
 import Control.Monad(Monad((>>=)))
 import Data.Aviation.Metar.BOMTAFResult(BOMTAFResponse(BOMTAFResponse), bomMETAR, bomTAF)
 import Data.Aviation.Metar.TAFResult(TAFResult(ConnErrorResult, ParseErrorResult, TAFResultValue))
 import Data.Aviation.Metar.TAFResultT(TAFResultT(TAFResultT))
+import Data.ByteString.Lazy(ByteString)
+import Data.ByteString.Lazy.Char8(unpack)
 import Data.Char(toUpper)
 import Data.Either(Either(Left, Right))
 import Data.Foldable(length)
+import Data.Function(($))
 import Data.Functor(fmap)
 import Data.List(intercalate)
 import Data.Maybe(Maybe(Nothing, Just))
 import Data.String(String, lines)
 import Data.Semigroup((<>))
-import Network.HTTP(Request, Response, setHeaders, setRequestBody, mkRequest, RequestMethod(POST, GET), Header(Header), HeaderName(..), rspBody, simpleHTTP)
-import Network.Stream(ConnError)
+import Network.HTTP(Request, Response, setHeaders, setRequestBody, mkRequest, RequestMethod(POST), Header(Header), HeaderName(..), rspBody, simpleHTTP)
+import Network.HTTP.Client(HttpException)
+import Network.Stream(ConnError(ErrorMisc))
 import Network.URI(URI(URI), URIAuth(URIAuth))
+import Network.Wreq(getWith, defaults, headers, Options, responseBody)
+import qualified Network.Wreq as Wreq(Response)
 import Prelude(show)
 import System.IO(IO, hPutStrLn, putStrLn, stderr)
 import Text.HTML.TagSoup(Tag(TagText))
@@ -101,40 +109,65 @@ getBOMTAF =
         mkTAFResponse . parseTree . rspBody
   in  TAFResultT . fmap (withResult respTAF) . simpleHTTP . request
 
--- http://tgftp.nws.noaa.gov/data/observations/metar/stations/xxxx.TXT
 getNOAAMETAR ::
   String
   -> TAFResultT IO String
 getNOAAMETAR =
-  let request ::
-        String
-        -> Request String
-      request xxxx =
-        setHeaders
-          (
-            mkRequest
-              GET
-              (URI "http" (Just (URIAuth "" "tgftp.nws.noaa.gov" "")) ("data/observations/metar/stations/" <> fmap toUpper xxxx <> ".TXT") "" "")               
-          )
+  let options ::
+        Options
+      options =
+        defaults & headers .~
           [
-            Header HdrHost                        "tgftp.nws.noaa.gov"
-          , Header HdrUserAgent                   "tonymorris/metar"
-          , Header HdrAccept                      "*/*"
-          , Header HdrAcceptLanguage              "en-US,en;q=0.5"
-          , Header HdrAcceptEncoding              "text/html"
-          , Header HdrConnection                  "keep-alive"
-          , Header HdrPragma                      "no-cache"
-          , Header HdrCacheControl                "no-cache"
-          , Header (HdrCustom "DNT")              "1"
+            (
+              "Host"
+            , "tgftp.nws.noaa.gov"
+            )
+          , (
+              "User-Agent"
+            , "tonymorris/metar"
+            )
+          , (
+              "Accept"
+            , "*/*"
+            )
+          , (
+              "Accept-Language"
+            , "en-US,en;q=0.5"
+            )
+          , (
+              "Accept-Encoding"
+            , "text/html"
+            )
+          , (
+              "Connection"
+            , "keep-alive"
+            )
+          , (
+              "Pragma"
+            , "no-cache"
+            )
+          , (
+              "Cache-Control"
+            , "no-cache"
+            )
+          , (
+              "DNT"
+            , "1"
+            )
           ]
+      request xxxx =
+        catch (fmap Right (getWith options ("https://tgftp.nws.noaa.gov/data/observations/metar/stations/" <> fmap toUpper xxxx <> ".TXT")))
+          (\e ->  let e' :: HttpException
+                      e' = e
+                  in pure . Left . ErrorMisc . show $ e')
       respMETAR ::
-        Response String
+        Wreq.Response ByteString
         -> Maybe String
       respMETAR r =
-        case lines (rspBody r) of
+        case lines . unpack $ r ^. responseBody of
           [_, r'] -> Just r'
           _ -> Nothing
-  in TAFResultT . fmap (withResult respMETAR) . simpleHTTP . request
+  in TAFResultT . fmap (withResult respMETAR) . request
 
 getAllMETAR ::
   String

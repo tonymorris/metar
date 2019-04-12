@@ -1,17 +1,18 @@
-{ mkDerivation, base, checkers, deriving-compat, HTTP, lens
-, network-uri, QuickCheck, semigroupoids, semigroups, stdenv
-, tagsoup, tagsoup-selection, tasty, tasty-hunit, tasty-quickcheck
-, transformers
+{ mkDerivation, base, bytestring, checkers, deriving-compat, HTTP
+, http-client, lens, network-uri, QuickCheck, semigroupoids
+, semigroups, stdenv, tagsoup, tagsoup-selection, tasty
+, tasty-hunit, tasty-quickcheck, transformers, wreq
 }:
 mkDerivation {
   pname = "metar";
-  version = "0.0.2";
+  version = "0.0.3";
   src = ./.;
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
-    base deriving-compat HTTP lens network-uri semigroupoids semigroups
-    tagsoup tagsoup-selection transformers
+    base bytestring deriving-compat HTTP http-client lens network-uri
+    semigroupoids semigroups tagsoup tagsoup-selection transformers
+    wreq
   ];
   executableHaskellDepends = [ base ];
   testHaskellDepends = [
