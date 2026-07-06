@@ -1,10 +1,10 @@
 name:               metar
-version:            0.0.3
+version:            0.0.4
 license:            BSD3
 license-file:       LICENCE
 author:             Tony Morris <ʇǝu˙sıɹɹoɯʇ@sıɹɹoɯʇ>
 maintainer:         Tony Morris <ʇǝu˙sıɹɹoɯʇ@sıɹɹoɯʇ>
-copyright:          Copyright (c) 2018, Tony Morris
+copyright:          Copyright (c) 2018-2026, Tony Morris
 synopsis:           METAR from NOAA
 category:           Data, Aviation
 description:
