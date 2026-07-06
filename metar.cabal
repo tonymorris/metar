@@ -5,12 +5,12 @@ license-file:       LICENCE
 author:             Tony Morris <ʇǝu˙sıɹɹoɯʇ@sıɹɹoɯʇ>
 maintainer:         Tony Morris <ʇǝu˙sıɹɹoɯʇ@sıɹɹoɯʇ>
 copyright:          Copyright (c) 2018, Tony Morris
-synopsis:           Australian METAR
+synopsis:           METAR from NOAA
 category:           Data, Aviation
-description:       
-  Obtain Australian METAR from Bureau of Meteorology (BOM).
+description:
+  Obtain METAR observations from NOAA.
   .
-  If that fails, get the METAR from NOAA.
+  Supports ICAO airport codes available in the NOAA database.
   .
   <<https://i.imgur.com/VGTogB8.gif>>
 homepage:           https://github.com/tonymorris/metar
@@ -29,18 +29,15 @@ library
 
   build-depends:
                     base >= 4.8 && < 5
-                    , bytestring >= 0.10 && < 0.11
-                    , http-client >= 0.5 && < 0.6
+                    , bytestring >= 0.10
+                    , http-client >= 0.5
                     , HTTP >= 4000 && < 5000
-                    , lens >= 4 && < 5
-                    , network-uri >= 2.6 && < 3
-                    , semigroups >= 0.9 && < 0.19
-                    , semigroupoids >= 5.2 && < 6
-                    , tagsoup >= 0.13 && < 0.15
-                    , tagsoup-selection >= 0.1 && < 0.2
-                    , transformers >= 0.5 && < 0.6
-                    , deriving-compat >= 0.5 && < 0.6
-                    , wreq >= 0.5 && < 0.6
+                    , lens >= 4 && < 6
+                    , semigroups >= 0.9
+                    , semigroupoids >= 5.2
+                    , transformers >= 0.5
+                    , deriving-compat >= 0.5
+                    , wreq >= 0.5
 
   ghc-options:
                     -Wall
@@ -54,9 +51,8 @@ library
 
   exposed-modules:
                     Data.Aviation.Metar
-                    , Data.Aviation.Metar.BOMTAFResult
-                    , Data.Aviation.Metar.TAFResult
-                    , Data.Aviation.Metar.TAFResultT
+                    , Data.Aviation.Metar.METARResult
+                    , Data.Aviation.Metar.METARResultT
 
 executable          metar
   main-is:
@@ -80,14 +76,14 @@ executable          metar
 
 test-suite          tests
 
-  build-depends:      QuickCheck >=2.9.2 && <2.13
+  build-depends:      QuickCheck >=2.9.2
                     , base >=4.8 && < 5
-                    , checkers >=0.4.6 && <0.5
+                    , checkers >=0.4.6
                     , metar
-                    , lens >=4 && <4.18
-                    , tasty >=0.11 && <1.2
-                    , tasty-hunit >=0.9 && <0.11
-                    , tasty-quickcheck >=0.8.4 && <0.11
+                    , lens >=4
+                    , tasty >=0.11
+                    , tasty-hunit >=0.9
+                    , tasty-quickcheck >=0.8.4
 
   type:             
                     exitcode-stdio-1.0

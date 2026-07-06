@@ -3,7 +3,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Data.Aviation.Metar.TAFResult where
+module Data.Aviation.Metar.METARResult where
 
 import Control.Applicative(Applicative(pure, (<*>)))
 import Control.Lens(makeClassy, makeClassyPrisms)
@@ -12,99 +12,85 @@ import Data.Eq(Eq)
 import Data.Eq.Deriving(deriveEq1)
 import Data.Foldable(Foldable(foldr))
 import Data.Functor(Functor(fmap), (<$>))
-import Data.Functor.Alt(Alt((<!>)))
 import Data.Functor.Apply(Apply((<.>)))
 import Data.Functor.Bind(Bind((>>-)))
 import Data.Functor.Extend(Extend(duplicated))
-import Data.Semigroup(Semigroup((<>)))
 import Data.Traversable(Traversable(traverse))
 import Network.Stream(ConnError)
 import Prelude(Show)
 import Text.Show.Deriving(deriveShow1)
 
-data TAFResult a =
+data METARResult a =
   ConnErrorResult ConnError
   | ParseErrorResult
-  | TAFResultValue a
+  | METARResultValue a
   deriving (Eq, Show)
 
-makeClassy ''TAFResult
-makeClassyPrisms ''TAFResult
-deriveEq1 ''TAFResult
-deriveShow1 ''TAFResult
+makeClassy ''METARResult
+makeClassyPrisms ''METARResult
+deriveEq1 ''METARResult
+deriveShow1 ''METARResult
 
-instance Functor TAFResult where
+instance Functor METARResult where
   fmap _ (ConnErrorResult e) =
     ConnErrorResult e
   fmap _ ParseErrorResult =
     ParseErrorResult
-  fmap f (TAFResultValue a) =
-    TAFResultValue (f a)
+  fmap f (METARResultValue a) =
+    METARResultValue (f a)
 
-instance Apply TAFResult where
+instance Apply METARResult where
   ConnErrorResult e <.> _ =
     ConnErrorResult e
   ParseErrorResult <.> _ =
     ParseErrorResult
-  TAFResultValue f <.> TAFResultValue a =
-    TAFResultValue (f a)
-  TAFResultValue _ <.> ConnErrorResult e =
+  METARResultValue f <.> METARResultValue a =
+    METARResultValue (f a)
+  METARResultValue _ <.> ConnErrorResult e =
     ConnErrorResult e
-  TAFResultValue _ <.> ParseErrorResult =
+  METARResultValue _ <.> ParseErrorResult =
     ParseErrorResult
 
-instance Applicative TAFResult where
+instance Applicative METARResult where
   pure =
-    TAFResultValue
+    METARResultValue
   (<*>) =
     (<.>)
 
-instance Bind TAFResult where
+instance Bind METARResult where
   ConnErrorResult e >>- _ =
     ConnErrorResult e
   ParseErrorResult >>- _ =
     ParseErrorResult
-  TAFResultValue a >>- f =
+  METARResultValue a >>- f =
     f a
 
-instance Monad TAFResult where
+instance Monad METARResult where
   return =
     pure
   (>>=) =
     (>>-)
 
-instance Foldable TAFResult where
-  foldr f z (TAFResultValue a) =
+instance Foldable METARResult where
+  foldr f z (METARResultValue a) =
     f a z
   foldr _ z (ConnErrorResult _ ) =
     z
   foldr _ z ParseErrorResult =
     z
 
-instance Traversable TAFResult where
-  traverse f (TAFResultValue a) =
-    TAFResultValue <$> f a
+instance Traversable METARResult where
+  traverse f (METARResultValue a) =
+    METARResultValue <$> f a
   traverse _ (ConnErrorResult e) =
     pure (ConnErrorResult e)
   traverse _ ParseErrorResult =
     pure ParseErrorResult
 
-instance Alt TAFResult where
-  TAFResultValue a <!> _ =
-    TAFResultValue a
-  ConnErrorResult _ <!> x =
-    x
-  ParseErrorResult <!> x =
-    x
-
-instance Extend TAFResult where
-  duplicated (TAFResultValue a) =
-    TAFResultValue (TAFResultValue a)
+instance Extend METARResult where
+  duplicated (METARResultValue a) =
+    METARResultValue (METARResultValue a)
   duplicated (ConnErrorResult e) =
     ConnErrorResult e
   duplicated ParseErrorResult =
     ParseErrorResult
-
-instance Semigroup (TAFResult a) where
-  (<>) =
-    (<!>)

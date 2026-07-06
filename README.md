@@ -1,10 +1,9 @@
 # metar
 
-Obtain Australian METAR from Bureau of Meteorology (BOM).
-http://www.bom.gov.au/aviation/forecasts/taf/
-
-If that fails, get the METAR from NOAA.
+Obtain METAR observations from NOAA.
 http://tgftp.nws.noaa.gov/data/observations/metar/stations/
+
+Supports ICAO airport codes available in the NOAA database (primarily US and major international airports).
 
 ----
 
