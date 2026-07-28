@@ -1,4 +1,3 @@
 :set prompt ">> "
-:set -XNoImplicitPrelude
 :set -Wall
 

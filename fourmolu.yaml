@@ -1,0 +1,15 @@
+indentation: 2
+comma-style: leading
+record-brace-space: false
+newlines-between-decls: 1
+haddock-style: single-line
+let-style: auto
+in-style: right-align
+respectful: true
+fixities:
+  - "infixl 1 &"
+  - "infixl 8 ^., ^.., ^?, ^?!"
+  - "infixr 4 .~, %~, ?~"
+  - "infixl 4 <.>"
+  - "infixl 1 >>-"
+  - "infixl 3 <|>"

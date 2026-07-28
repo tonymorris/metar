@@ -1,9 +1,12 @@
 # metar
 
-Obtain METAR observations from NOAA.
-http://tgftp.nws.noaa.gov/data/observations/metar/stations/
+Obtain METAR observations.
 
-Supports ICAO airport codes available in the NOAA database (primarily US and major international airports).
+Australian aerodromes (ICAO codes beginning with `Y`) are fetched by scraping the Bureau of Meteorology:
+https://www.bom.gov.au/aviation/observations/metar-speci/
+
+Everything else falls back to NOAA:
+http://tgftp.nws.noaa.gov/data/observations/metar/stations/
 
 ----
 

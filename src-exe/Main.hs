@@ -1,15 +1,13 @@
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# OPTIONS_GHC -Wall #-}
 
-module Main(
-  main
+module Main (
+  main,
 ) where
 
-import Data.Aviation.Metar(runMETAR)
-import System.Environment(getArgs)
-import System.IO(IO)
+import Data.Aviation.Metar (runMETAR)
+import System.Environment (getArgs)
 
 main ::
   IO ()
 main =
-  do  a <- getArgs
-      runMETAR a
+  getArgs >>= runMETAR

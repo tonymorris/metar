@@ -7,6 +7,7 @@
 /.cabal-sandbox
 /cabal.sandbox.config
 /cabal.project.freeze
+/.ghc.environment.*
 
 # nix
 /result

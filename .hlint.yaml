@@ -1,0 +1,12 @@
+# HLint configuration for the metar library
+
+# Restrict partial and unsafe functions
+- functions:
+  - {name: "unsafePerformIO", within: []}
+  - {name: "unsafeCoerce", within: []}
+  - {name: "error", within: []}
+  - {name: "undefined", within: []}
+  - {name: "head", within: []}
+  - {name: "tail", within: []}
+  - {name: "!!", within: []}
+  - {name: "fromJust", within: []}
