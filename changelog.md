@@ -1,4 +1,4 @@
-0.0.6
+0.0.7
 
 * Restore TAF (Terminal Aerodrome Forecast) fetching
   * `getBOMTAF` — POSTs to BOM's aviation `process.php` with a keyword
@@ -10,6 +10,9 @@
   * `pickProduct` / `extractStations` generalised to `pickProductWith` /
     `extractStationsWith`, parameterised by the `<br />` replacement so
     METAR (space) and TAF (newline) share the same parser
+
+0.0.6
+
 * New module `Data.Aviation.GAF` — fetches BOM Graphical Area Forecast PNGs
   * Parses area codes from `gaf.shtml` and area→product-id rotations from
     `gaf-pub.js`; picks current/next based on UTC hour boundaries at
