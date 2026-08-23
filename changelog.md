@@ -1,3 +1,20 @@
+0.0.6
+
+* New module `Data.Aviation.GAF` — fetches BOM Graphical Area Forecast PNGs
+  * Parses area codes from `gaf.shtml` and area→product-id rotations from
+    `gaf-pub.js`; picks current/next based on UTC hour boundaries at
+    05/11/17/23
+  * Exposes `getGAF`, `GAFPeriod`, `GAFError`, `GAFImage`
+* New module `Data.Aviation.GPWT` — fetches BOM Grid Point Wind &
+  Temperature forecast PNGs
+  * Parses the grid-point-forecasts page for the full (level, area, time)
+    → product-id map
+  * Routes `IDY*` products through `/fwo/aviation/` and `IDX*` products
+    through `/difacs/aviation/`
+  * Normalises area codes so `VIC/TAS`, `VIC-TAS` and `VICTAS` all match
+  * Exposes `getGPWT`, `GPWTLevel`, `GPWTEntry`, `GPWTError`, `GPWTImage`
+* Add `time` dependency
+
 0.0.5
 
 * Restore BOM (Bureau of Meteorology) support via HTML scraping of the METAR/SPECI page

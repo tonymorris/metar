@@ -41,6 +41,8 @@ cabal build --write-ghc-environment-files=always all >/dev/null
   -XFunctionalDependencies \
   -XTypeFamilies \
   -XTypeOperators \
+  src/Data/Aviation/GAF.hs \
+  src/Data/Aviation/GPWT.hs \
   src/Data/Aviation/Metar/Cache.hs \
   src/Data/Aviation/Metar/METARResult.hs \
   src/Data/Aviation/Metar/METARResultT.hs \

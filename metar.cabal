@@ -1,5 +1,5 @@
 name:               metar
-version:            0.0.5
+version:            0.0.6
 license:            BSD3
 license-file:       LICENCE
 author:             Tony Morris <ʇǝu˙sıɹɹoɯʇ@sıɹɹoɯʇ>
@@ -40,6 +40,7 @@ library
                     , transformers >= 0.5 && < 0.7
                     , deriving-compat >= 0.5 && < 0.7
                     , tagsoup >= 0.14 && < 0.15
+                    , time >= 1.9 && < 2
                     , wreq >= 0.5 && < 0.6
 
   ghc-options:
@@ -49,7 +50,9 @@ library
                     src
 
   exposed-modules:
-                    Data.Aviation.Metar
+                    Data.Aviation.GAF
+                    , Data.Aviation.GPWT
+                    , Data.Aviation.Metar
                     , Data.Aviation.Metar.Cache
                     , Data.Aviation.Metar.METARError
                     , Data.Aviation.Metar.METARResult
