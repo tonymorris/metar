@@ -9,6 +9,10 @@ Fetch aviation weather products from the Australian Bureau of Meteorology
   `Y`) are scraped from
   <https://www.bom.gov.au/aviation/observations/metar-speci/>; other codes
   fall back to <http://tgftp.nws.noaa.gov/data/observations/metar/stations/>.
+- **TAF forecasts** — Terminal Aerodrome Forecasts, same coverage split:
+  BOM for `Y*` via <https://www.bom.gov.au/aviation/forecasts/taf/>, NOAA
+  fallback via
+  <http://tgftp.nws.noaa.gov/data/forecasts/taf/stations/>.
 - **Graphical Area Forecasts (GAFs)** — the current or next PNG chart for one
   of the ten BOM forecast areas
   (`WA-N`, `WA-S`, `NT`, `QLD-N`, `QLD-S`, `SA`, `NSW-W`, `NSW-E`, `VIC`,
@@ -26,6 +30,7 @@ Fetch aviation weather products from the Australian Bureau of Meteorology
 | Module                    | Entry point                                                                       |
 |---------------------------|-----------------------------------------------------------------------------------|
 | `Data.Aviation.Metar`     | `getMETAR :: String -> METARResultT IO String`                                    |
+| `Data.Aviation.Metar`     | `getTAF   :: String -> METARResultT IO String`                                    |
 | `Data.Aviation.GAF`       | `getGAF   :: String -> GAFPeriod -> IO (Either GAFError GAFImage)`                |
 | `Data.Aviation.GPWT`      | `getGPWT  :: GPWTLevel -> String -> String -> IO (Either GPWTError GPWTImage)`    |
 
@@ -43,7 +48,7 @@ $ metar KJFK
 KJFK 231005Z 11009KT 10SM SCT009 BKN016 BKN042 BKN140 22/21 A2979 RMK …
 ```
 
-The GAF and GPWT modules are library-only in this package; an HTTP surface
+TAF, GAF and GPWT are library-only in this package; an HTTP surface
 lives in the sibling [`metar-http`](https://github.com/tonymorris/metar-http)
 project.
 

@@ -8,11 +8,15 @@
 -- >>> import Text.HTML.TagSoup (parseTags)
 {- FOURMOLU_ENABLE -}
 
--- | Fetching METAR observations from the BOM (Australia) and NOAA (rest of world).
+-- | Fetching METAR observations and TAF (Terminal Aerodrome Forecast) products
+-- from the BOM (Australia) and NOAA (rest of world).
 module Data.Aviation.Metar (
   getBOMMETAR,
   getNOAAMETAR,
   getMETAR,
+  getBOMTAF,
+  getNOAATAF,
+  getTAF,
   runMETAR,
 ) where
 
@@ -120,10 +124,26 @@ failWith e =
 extractStations ::
   [Tag String] ->
   [(String, String)]
-extractStations tags =
+extractStations =
+  extractStationsWith " "
+
+-- | Generalised 'extractStations' that lets the caller pick the string used
+-- to replace @\<br /\>@ tags inside each product. METAR responses use a
+-- space; TAF responses use a newline (so the multi-line structure is
+-- preserved).
+--
+-- >>> extractStationsWith " " (parseTags "<h3>SYDNEY YSSY 28/07/2026 UTC</h3><p class=\"product\">METAR YSSY 280600Z<br />NCD Q1018</p>")
+-- [("YSSY","METAR YSSY 280600Z NCD Q1018")]
+-- >>> extractStationsWith "\n" (parseTags "<h3>SYDNEY YSSY</h3><p class=\"product\">TAF YSSY 230813Z 2309/2412<br />02012KT 9999 SCT040</p>")
+-- [("YSSY","TAF YSSY 230813Z 2309/2412\n02012KT 9999 SCT040")]
+extractStationsWith ::
+  String ->
+  [Tag String] ->
+  [(String, String)]
+extractStationsWith brRepl tags =
   let go (TagOpen "h3" _ : ts) =
         let (title, ts') = takeText ts
-            (product', ts'') = pickProduct ts'
+            (product', ts'') = pickProductWith brRepl ts'
          in case (extractIcao title, product') of
               (Just i, Just p) -> (i, p) : go ts''
               _ -> go ts''
@@ -147,20 +167,27 @@ takeText =
       go acc [] = (acc, [])
    in go ""
 
--- | Find and consume the next @\<p class="product"\>...\</p\>@, returning its
--- text and the tags following. If a fresh @\<h3\>@ appears first we stop and
--- rewind, so the caller can handle it.
+-- | Find and consume the next @\<p class="product"\>...\</p\>@, returning
+-- its text and the tags following. @brRepl@ is the string used to replace
+-- @\<br /\>@ tags inside the product body (space for METAR, newline for
+-- TAF). If a fresh @\<h3\>@ appears first we stop and rewind so the caller
+-- can handle it.
 --
--- >>> fst (pickProduct (parseTags "<p class=\"product\">METAR YSSY hi</p>rest"))
+-- >>> fst (pickProductWith " " (parseTags "<p class=\"product\">METAR YSSY hi</p>rest"))
 -- Just "METAR YSSY hi"
--- >>> fst (pickProduct (parseTags "<p>not product</p>"))
+-- >>> fst (pickProductWith " " (parseTags "<p class=\"product\">TAF YSSY<br />NEXT</p>"))
+-- Just "TAF YSSY NEXT"
+-- >>> fst (pickProductWith "\n" (parseTags "<p class=\"product\">TAF YSSY<br />NEXT</p>"))
+-- Just "TAF YSSY\nNEXT"
+-- >>> fst (pickProductWith " " (parseTags "<p>not product</p>"))
 -- Nothing
--- >>> fst (pickProduct [])
+-- >>> fst (pickProductWith " " [])
 -- Nothing
-pickProduct ::
+pickProductWith ::
+  String ->
   [Tag String] ->
   (Maybe String, [Tag String])
-pickProduct (TagOpen "p" attrs : rest)
+pickProductWith brRepl (TagOpen "p" attrs : rest)
   | lookup "class" attrs == Just "product" =
       let (inside, rest') = break isPClose rest
           txt = concatMap tagText inside
@@ -169,13 +196,13 @@ pickProduct (TagOpen "p" attrs : rest)
   isPClose (TagClose "p") = True
   isPClose _ = False
   tagText (TagText t) = t
-  tagText (TagOpen "br" _) = " "
+  tagText (TagOpen "br" _) = brRepl
   tagText _ = ""
-pickProduct (TagOpen "h3" _ : rest) =
+pickProductWith _ (TagOpen "h3" _ : rest) =
   (Nothing, TagOpen "h3" [] : rest)
-pickProduct (_ : rest) =
-  pickProduct rest
-pickProduct [] =
+pickProductWith brRepl (_ : rest) =
+  pickProductWith brRepl rest
+pickProductWith _ [] =
   (Nothing, [])
 
 -- | Pull the ICAO out of an aerodrome heading. Returns the last four-letter
@@ -239,6 +266,30 @@ findMETAR ::
 findMETAR icao =
   let matches (i, p) =
         i == icao && (isPrefixOf "METAR " p || isPrefixOf "SPECI " p)
+      go [] = Nothing
+      go (s : ss) = if matches s then Just (snd s) else go ss
+   in go
+ where
+  isPrefixOf p s = take (length p) s == p
+
+-- | Locate the TAF product line for a given ICAO in a list of parsed station
+-- entries.
+--
+-- >>> findTAF "YSSY" [("YSSY", "TAF YSSY 230813Z 2309/2412 ...")]
+-- Just "TAF YSSY 230813Z 2309/2412 ..."
+-- >>> findTAF "YSSY" [("YSSY", "TAF3")]
+-- Nothing
+-- >>> findTAF "YSSY" [("YMML", "TAF YMML ...")]
+-- Nothing
+-- >>> findTAF "YSSY" []
+-- Nothing
+findTAF ::
+  String ->
+  [(String, String)] ->
+  Maybe String
+findTAF icao =
+  let matches (i, p) =
+        i == icao && isPrefixOf "TAF " p
       go [] = Nothing
       go (s : ss) = if matches s then Just (snd s) else go ss
    in go
@@ -380,6 +431,116 @@ getMETAR ::
   METARResultT IO String
 getMETAR icao =
   getBOMMETAR icao <!> getNOAAMETAR icao
+
+-- | POST to @process.php@ with a keyword-based search (as used by BOM's
+-- @/aviation/forecasts/taf/@ page). @pageName@ selects which product type
+-- BOM returns; @"TAF"@ yields a TAF plus the corresponding METAR.
+--
+-- >>> :t requestKeyword
+-- requestKeyword
+--   :: String
+--      -> String -> IO (Either HttpException (Wreq.Response ByteString))
+requestKeyword ::
+  String ->
+  String ->
+  IO (Either HttpException (Wreq.Response ByteString))
+requestKeyword keyword pageName =
+  let url = "https://www.bom.gov.au/aviation/php/process.php"
+      body :: [FormParam]
+      body =
+        [ "keyword" := keyword
+        , "type" := ("search" :: String)
+        , "page" := pageName
+        ]
+   in catch (fmap Right (postWith bomOptions url body)) (pure . Left)
+
+-- | Fetch a TAF from the Bureau of Meteorology. Only @Y*@ ICAOs are
+-- attempted; anything else returns a 'ParseErrorAt' at @"BOM"@ without a
+-- network call. Line breaks in the response (@\<br /\>@) are preserved as
+-- newlines.
+--
+-- >>> :t getBOMTAF
+-- getBOMTAF :: String -> METARResultT IO String
+getBOMTAF ::
+  String ->
+  METARResultT IO String
+getBOMTAF icao =
+  let icao' = fmap toUpper icao
+   in case icao' of
+        ('Y' : _) ->
+          METARResultT $
+            requestKeyword icao' "TAF" >>= \case
+              Left e ->
+                pure (failWith (classifyHttp "BOM" e))
+              Right resp ->
+                let stations = extractStationsWith "\n" (parseTags (BS.unpack (resp ^. responseBody)))
+                 in pure $ case findTAF icao' stations of
+                      Just t -> METARResultValue t
+                      Nothing -> failWith (ParseErrorAt "BOM" (icao' <> " not in response"))
+        _ ->
+          METARResultT (pure (failWith (ParseErrorAt "BOM" (icao' <> " is not an Australian ICAO (Y*)"))))
+
+-- | Fetch a TAF from NOAA's @tgftp.nws.noaa.gov@ station-file endpoint.
+-- The first line of NOAA's response is the ingestion timestamp; the
+-- remaining lines make up the TAF and are joined here with newlines.
+--
+-- >>> :t getNOAATAF
+-- getNOAATAF :: String -> METARResultT IO String
+getNOAATAF ::
+  String ->
+  METARResultT IO String
+getNOAATAF =
+  let options ::
+        Options
+      options =
+        defaults
+          & headers
+            .~ [ ("Host", "tgftp.nws.noaa.gov")
+               , ("User-Agent", "tonymorris/metar")
+               , ("Accept", "*/*")
+               , ("Accept-Language", "en-US,en;q=0.5")
+               , ("Accept-Encoding", "text/html")
+               , ("Connection", "keep-alive")
+               , ("Pragma", "no-cache")
+               , ("Cache-Control", "no-cache")
+               , ("DNT", "1")
+               ]
+      request xxxx =
+        catch
+          (fmap Right (getWith options ("https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/" <> fmap toUpper xxxx <> ".TXT")))
+          (pure . Left)
+      respTAF ::
+        Wreq.Response ByteString ->
+        Maybe String
+      respTAF r =
+        case BS.lines (r ^. responseBody) of
+          (_ : rs@(_ : _)) -> Just (joinLines (fmap BS.unpack rs))
+          _ -> Nothing
+      joinLines [] = ""
+      joinLines [x] = x
+      joinLines (x : xs) = x <> "\n" <> joinLines xs
+   in METARResultT
+        . fmap
+          ( \case
+              Left e -> failWith (classifyHttp "NOAA" e)
+              Right response ->
+                case respTAF response of
+                  Just t -> METARResultValue t
+                  Nothing -> failWith (ParseErrorAt "NOAA" "unexpected response format")
+          )
+        . request
+
+-- | Fetch a TAF. Try BOM first (which itself returns a 'ParseErrorAt' for
+-- non-@Y*@ codes), then fall back to NOAA. Errors from both sources are
+-- accumulated in the 'METARResultFailure' list.
+--
+-- >>> :t getTAF
+-- getTAF :: String -> METARResultT IO String
+getTAF ::
+  String ->
+  METARResultT IO String
+getTAF icao =
+  getBOMTAF icao <!> getNOAATAF icao
 
 -- | Render one 'METARError' as a human-readable line.
 --

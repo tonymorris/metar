@@ -1,5 +1,15 @@
 0.0.6
 
+* Restore TAF (Terminal Aerodrome Forecast) fetching
+  * `getBOMTAF` — POSTs to BOM's aviation `process.php` with a keyword
+    search (`page=TAF`); returns the multi-line TAF with `<br />` line
+    breaks preserved as newlines
+  * `getNOAATAF` — reads NOAA's `/data/forecasts/taf/stations/<ICAO>.TXT`
+    (skipping the leading timestamp line)
+  * `getTAF` — BOM first for `Y*` codes, NOAA fallback for everything else
+  * `pickProduct` / `extractStations` generalised to `pickProductWith` /
+    `extractStationsWith`, parameterised by the `<br />` replacement so
+    METAR (space) and TAF (newline) share the same parser
 * New module `Data.Aviation.GAF` — fetches BOM Graphical Area Forecast PNGs
   * Parses area codes from `gaf.shtml` and area→product-id rotations from
     `gaf-pub.js`; picks current/next based on UTC hour boundaries at
