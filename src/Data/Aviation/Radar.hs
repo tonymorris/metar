@@ -37,9 +37,14 @@ module Data.Aviation.Radar (
   RadarSite (..),
   RadarImage (..),
   RadarError (..),
+  RadarFrame (..),
+  RadarFramesList (..),
+  FrameSelector (..),
 
   -- * Fetching
   getRadar,
+  getRadarFrames,
+  getRadarFrame,
 
   -- * Parsing (exported for testing)
   parseRadarSites,
@@ -52,6 +57,9 @@ module Data.Aviation.Radar (
   productCode,
   transparenciesCode,
   slugify,
+  frameTimestampFromUrl,
+  absoluteFrameUrl,
+  pickFrame,
   renderRadarError,
 ) where
 
@@ -164,6 +172,46 @@ data RadarError
     RadarGifEncodeError String
   | -- | A network request failed. First field is the source label.
     RadarHttpError String String
+  | -- | Frame index requested was outside @[0, count)@. First field is the
+    -- requested index, second is the total number of frames available.
+    RadarFrameIndexOutOfRange Int Int
+  | -- | Frame timestamp requested did not match any published frame.
+    -- Second field is the list of valid timestamps.
+    RadarFrameTimestampNotFound String [String]
+  deriving (Eq, Show)
+
+-- | One frame in an animated radar loop. @radarFrameN@ is the zero-based
+-- index in the loop (frame @0@ is the oldest, higher indices are more
+-- recent); @radarFrameTimestamp@ is the @YYYYMMDDHHMM@ timestamp embedded
+-- in the frame URL; @radarFrameUrl@ is the absolute BOM URL of the raw
+-- PNG.
+data RadarFrame = RadarFrame
+  { radarFrameN :: Int
+  , radarFrameTimestamp :: String
+  , radarFrameUrl :: String
+  }
+  deriving (Eq, Show)
+
+-- | The full frame listing for a site+product: the site (missing for
+-- 'RadarNational'), the product, the BOM product code (e.g. @\"IDR023\"@),
+-- and every frame currently published.
+data RadarFramesList = RadarFramesList
+  { radarFramesSite :: Maybe RadarSite
+  , radarFramesProduct :: RadarProduct
+  , radarFramesProductCode :: String
+  , radarFramesFrames :: [RadarFrame]
+  }
+  deriving (Eq, Show)
+
+-- | How to pick a single frame from an animated loop.
+--
+-- >>> [FrameByIndex 0, FrameByTimestamp "202608240034"]
+-- [FrameByIndex 0,FrameByTimestamp "202608240034"]
+data FrameSelector
+  = -- | Zero-based index into the loop (@0@ is the oldest frame).
+    FrameByIndex Int
+  | -- | 12-digit @YYYYMMDDHHMM@ UTC timestamp of the frame.
+    FrameByTimestamp String
   deriving (Eq, Show)
 
 -- | Render a 'RadarError' as a single line of human-readable text.
@@ -185,6 +233,12 @@ data RadarError
 --
 -- >>> renderRadarError (RadarHttpError "IDR023.gif" "connection timeout")
 -- "IDR023.gif: connection timeout"
+--
+-- >>> renderRadarError (RadarFrameIndexOutOfRange 9 7)
+-- "frame index 9 out of range (7 frames available, valid: 0..6)"
+--
+-- >>> renderRadarError (RadarFrameTimestampNotFound "202608000000" ["202608240034","202608240039"])
+-- "no frame with timestamp \"202608000000\" (valid: 202608240034, 202608240039)"
 renderRadarError ::
   RadarError ->
   String
@@ -212,6 +266,22 @@ renderRadarError e =
       "failed to encode animated GIF: " <> msg
     RadarHttpError src msg ->
       src <> ": " <> msg
+    RadarFrameIndexOutOfRange i n ->
+      "frame index "
+        <> show i
+        <> " out of range ("
+        <> show n
+        <> " frames available"
+        <> ( if n > 0
+               then ", valid: 0.." <> show (n - 1) <> ")"
+               else ")"
+           )
+    RadarFrameTimestampNotFound t valid ->
+      "no frame with timestamp "
+        <> show t
+        <> " (valid: "
+        <> commaList valid
+        <> ")"
  where
   kindWord RadarKindRadar = "radar"
   kindWord RadarKindRainfall = "rainfall"
@@ -407,7 +477,7 @@ slugify ::
   String ->
   String
 slugify =
-  trimDash . collapseDash . fmap normChar . fmap toLower
+  trimDash . collapseDash . fmap (normChar . toLower)
  where
   normChar c
     | isAlphaNum c = c
@@ -545,6 +615,50 @@ parseLoopFrames src =
   , Just url <- [extractQuoted line]
   ]
 
+-- | Extract the 12-digit @YYYYMMDDHHMM@ timestamp embedded in a BOM
+-- frame path.
+--
+-- >>> frameTimestampFromUrl "/radar/IDR023.T.202608240034.png"
+-- Just "202608240034"
+--
+-- >>> frameTimestampFromUrl "https://reg.bom.gov.au/radar/IDR00004.T.202608242048.png"
+-- Just "202608242048"
+--
+-- >>> frameTimestampFromUrl "no timestamp here"
+-- Nothing
+--
+-- >>> frameTimestampFromUrl "IDR023.T.20260824.png"
+-- Nothing
+frameTimestampFromUrl ::
+  String ->
+  Maybe String
+frameTimestampFromUrl s =
+  case s of
+    '.' : 'T' : '.' : rest ->
+      let ts = takeWhile isDigit rest
+       in if length ts == 12 then Just ts else Nothing
+    _ : rest -> frameTimestampFromUrl rest
+    [] -> Nothing
+
+-- | Prepend the BOM radar host to a relative frame path. Absolute URLs
+-- are returned unchanged.
+--
+-- >>> absoluteFrameUrl "/radar/IDR023.T.202608240034.png"
+-- "https://reg.bom.gov.au/radar/IDR023.T.202608240034.png"
+--
+-- >>> absoluteFrameUrl "https://example.com/foo.png"
+-- "https://example.com/foo.png"
+--
+-- >>> absoluteFrameUrl "http://example.com/foo.png"
+-- "http://example.com/foo.png"
+absoluteFrameUrl ::
+  String ->
+  String
+absoluteFrameUrl path
+  | "http://" `isPrefixOf` path = path
+  | "https://" `isPrefixOf` path = path
+  | otherwise = "https://reg.bom.gov.au" <> path
+
 -- | Extract the first double-quoted substring from a line, or 'Nothing'
 -- if the line does not contain a matching pair of double quotes.
 --
@@ -614,9 +728,10 @@ getRadar period _ maybeSite product' =
         RadarLoop -> fetchLoop "" product'
     _ ->
       case maybeSite of
-        Nothing -> fetchSites >>= \case
-          Left err -> pure (Left err)
-          Right ss -> pure (Left (RadarUnknownSite "" ss))
+        Nothing ->
+          fetchSites >>= \case
+            Left err -> pure (Left err)
+            Right ss -> pure (Left (RadarUnknownSite "" ss))
         Just siteIn ->
           fetchSites >>= \case
             Left err -> pure (Left err)
@@ -651,6 +766,147 @@ fetchSingle base p =
    in httpGet pid url >>= \case
         Left err -> pure (Left err)
         Right body -> pure (Right (RadarImage "image/gif" body))
+
+-- | Resolve @(product, maybeSite)@ to the site record and its base id.
+-- 'RadarNational' has no site — returns @(Nothing, \"\")@. Any other
+-- product needs a matching site; if @maybeSite@ is 'Nothing' or does not
+-- match one of the sites advertised on the landing page, a
+-- 'RadarUnknownSite' error is returned.
+resolveSite ::
+  RadarProduct ->
+  Maybe String ->
+  IO (Either RadarError (Maybe RadarSite))
+resolveSite RadarNational _ =
+  pure (Right Nothing)
+resolveSite _ Nothing =
+  fetchSites >>= \case
+    Left err -> pure (Left err)
+    Right ss -> pure (Left (RadarUnknownSite "" ss))
+resolveSite _ (Just siteIn) =
+  fetchSites >>= \case
+    Left err -> pure (Left err)
+    Right ss ->
+      case findSite siteIn ss of
+        Nothing -> pure (Left (RadarUnknownSite siteIn ss))
+        Just site -> pure (Right (Just site))
+
+-- | Fetch the frame listing for a site+product loop without downloading
+-- the frame images themselves. Each entry carries its zero-based index in
+-- the loop, its 12-digit UTC timestamp, and the absolute BOM URL of the
+-- raw PNG.
+--
+-- 'RadarNational' does not require a site.
+--
+-- >>> :t getRadarFrames
+-- getRadarFrames
+--   :: RadarKind
+--      -> Maybe String
+--      -> RadarProduct
+--      -> IO (Either RadarError RadarFramesList)
+getRadarFrames ::
+  RadarKind ->
+  Maybe String ->
+  RadarProduct ->
+  IO (Either RadarError RadarFramesList)
+getRadarFrames _ maybeSite product' =
+  resolveSite product' maybeSite >>= \case
+    Left err -> pure (Left err)
+    Right maybeS ->
+      let base = maybe "" radarSiteBase maybeS
+          pid = productCode base product'
+          loopUrl = case product' of
+            RadarNational ->
+              "https://reg.bom.gov.au/products/national_radar_sat.loop.shtml"
+            _ ->
+              "https://reg.bom.gov.au/products/" <> pid <> ".loop.shtml"
+       in httpGet (pid <> ".loop.shtml") loopUrl >>= \case
+            Left err -> pure (Left err)
+            Right body ->
+              case parseLoopFrames (BLC.unpack body) of
+                [] -> pure (Left (RadarLoopFramesParseError pid))
+                paths ->
+                  pure . Right $
+                    RadarFramesList
+                      { radarFramesSite = maybeS
+                      , radarFramesProduct = product'
+                      , radarFramesProductCode = pid
+                      , radarFramesFrames = buildFrames paths
+                      }
+ where
+  buildFrames paths =
+    let withTs =
+          [ (path, ts)
+          | path <- paths
+          , Just ts <- [frameTimestampFromUrl path]
+          ]
+     in [ RadarFrame
+            { radarFrameN = i
+            , radarFrameTimestamp = ts
+            , radarFrameUrl = absoluteFrameUrl path
+            }
+        | (i, (path, ts)) <- zip [0 ..] withTs
+        ]
+
+-- | Fetch a single frame from a loop by index or timestamp. The frame is
+-- returned as-is from BOM (a raw @image/png@), without the background or
+-- overlay compositing that 'getRadar' with 'RadarLoop' applies.
+--
+-- >>> :t getRadarFrame
+-- getRadarFrame
+--   :: RadarKind
+--      -> Maybe String
+--      -> RadarProduct
+--      -> FrameSelector
+--      -> IO (Either RadarError RadarImage)
+getRadarFrame ::
+  RadarKind ->
+  Maybe String ->
+  RadarProduct ->
+  FrameSelector ->
+  IO (Either RadarError RadarImage)
+getRadarFrame kind maybeSite product' selector =
+  getRadarFrames kind maybeSite product' >>= \case
+    Left err -> pure (Left err)
+    Right list ->
+      case pickFrame selector (radarFramesFrames list) of
+        Left err -> pure (Left err)
+        Right frame ->
+          httpGet (radarFrameTimestamp frame) (radarFrameUrl frame) >>= \case
+            Left err -> pure (Left err)
+            Right body -> pure (Right (RadarImage "image/png" body))
+
+-- | Pick a single frame from a list according to a 'FrameSelector'.
+-- Returns a 'RadarError' when the index is out of range or the timestamp
+-- is not present.
+--
+-- >>> let fs = [RadarFrame 0 "202608240034" "u1", RadarFrame 1 "202608240039" "u2"]
+-- >>> pickFrame (FrameByIndex 1) fs
+-- Right (RadarFrame {radarFrameN = 1, radarFrameTimestamp = "202608240039", radarFrameUrl = "u2"})
+--
+-- >>> pickFrame (FrameByIndex 9) fs
+-- Left (RadarFrameIndexOutOfRange 9 2)
+--
+-- >>> pickFrame (FrameByTimestamp "202608240034") fs
+-- Right (RadarFrame {radarFrameN = 0, radarFrameTimestamp = "202608240034", radarFrameUrl = "u1"})
+--
+-- >>> pickFrame (FrameByTimestamp "999999999999") fs
+-- Left (RadarFrameTimestampNotFound "999999999999" ["202608240034","202608240039"])
+pickFrame ::
+  FrameSelector ->
+  [RadarFrame] ->
+  Either RadarError RadarFrame
+pickFrame sel frames =
+  case sel of
+    FrameByIndex i
+      | i >= 0
+      , (f : _) <- drop i frames ->
+          Right f
+      | otherwise ->
+          Left (RadarFrameIndexOutOfRange i (length frames))
+    FrameByTimestamp ts ->
+      case filter ((== ts) . radarFrameTimestamp) frames of
+        (f : _) -> Right f
+        [] -> Left (RadarFrameTimestampNotFound ts (fmap radarFrameTimestamp frames))
 
 -- | Fetch every frame of a loop, composite each on top of the site's
 -- background and overlay transparencies, and assemble the result as an
@@ -880,4 +1136,3 @@ httpGetOptional _ url =
   catch
     (fmap (Right . Just . (^. responseBody)) (getWith bomOptions url))
     (\(_ :: HttpException) -> pure (Right Nothing))
-
